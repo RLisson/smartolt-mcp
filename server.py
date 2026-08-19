@@ -340,6 +340,15 @@ async def restore_onu_factory_defaults(onu_external_id: str) -> dict:
     return await _post(f"onu/restore_factory_defaults/{onu_external_id}")
 
 
+@mcp.tool()
+async def get_unconfigured_onus() -> dict:
+    """Lista todas as ONUs detectadas nas OLTs que ainda não foram autorizadas
+    (não configuradas). Use esses dados (olt_id, board, port, sn, pon_type,
+    etc.) como ponto de partida para chamar authorize_onu.
+    """
+    return await _get("onu/unconfigured_onus")
+
+
 if __name__ == "__main__":
     import secrets
     import uvicorn
