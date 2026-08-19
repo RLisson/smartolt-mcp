@@ -341,12 +341,58 @@ async def restore_onu_factory_defaults(onu_external_id: str) -> dict:
 
 
 if __name__ == "__main__":
+    import secrets
+    import uvicorn
+    from starlette.responses import PlainTextResponse
+
     # Streamable HTTP é o transporte recomendado hoje para conectores remotos.
-    # host=0.0.0.0 e a porta via variável de ambiente PORT são necessários para
-    # rodar em plataformas de nuvem como Railway ou Render.
-    mcp.run(
-        transport="streamable-http",
-        host="0.0.0.0",
-        port=int(os.environ.get("PORT", 8000)),
+    PORT = int(os.environ.get("PORT", 8000))
+    STREAMABLE_PATH = "/mcp"
+
+    MCP_SHARED_SECRET = os.environ.get("MCP_SHARED_SECRET", "")
+
+    # Monta a app Streamable HTTP normalmente (host=0.0.0.0 para funcionar em
+    # plataformas de nuvem como Railway/Render).
+    app = mcp.streamable_http_app(
+        streamable_http_path=STREAMABLE_PATH,
         stateless_http=True,
+        host="0.0.0.0",
     )
+
+    if not MCP_SHARED_SECRET:
+        print(
+            "AVISO: MCP_SHARED_SECRET não definido — o servidor vai subir SEM "
+            "proteção por token. Defina essa variável de ambiente para exigir "
+            "autenticação em todas as chamadas.",
+            flush=True,
+        )
+
+    def _protect(asgi_app):
+        """Middleware ASGI simples: exige um token secreto fixo no header
+        Authorization (formato "Bearer <token>") em toda requisição para o
+        endpoint MCP. Isso NÃO é OAuth — não há descoberta, não há fluxo de
+        login — então o Claude nunca tenta o handshake de OAuth; ele só passa
+        a precisar enviar esse header em cada chamada, configurado em
+        Advanced settings > Headers do conector."""
+
+        async def middleware(scope, receive, send):
+            if scope["type"] != "http" or not MCP_SHARED_SECRET:
+                await asgi_app(scope, receive, send)
+                return
+
+            headers = dict(scope.get("headers") or [])
+            auth_header = headers.get(b"authorization", b"").decode()
+            expected = f"Bearer {MCP_SHARED_SECRET}"
+
+            if not secrets.compare_digest(auth_header, expected):
+                response = PlainTextResponse("Unauthorized", status_code=401)
+                await response(scope, receive, send)
+                return
+
+            await asgi_app(scope, receive, send)
+
+        return middleware
+
+    protected_app = _protect(app)
+
+    uvicorn.run(protected_app, host="0.0.0.0", port=PORT, log_level="info")
