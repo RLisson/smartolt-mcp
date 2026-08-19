@@ -93,67 +93,103 @@ async def get_olt_cards(olt_id: str) -> dict:
 
 @mcp.tool()
 async def get_all_onus_details(
+    page: str | None = None,
+    page_size: str | None = None,
+    updated_since: str | None = None,
+    fields: str | None = None,
     olt_id: str | None = None,
     board: str | None = None,
     port: str | None = None,
     zone: str | None = None,
     odb: str | None = None,
+    sn: str | None = None,
+    external_id: str | None = None,
+    name: str | None = None,
+    address: str | None = None,
+    onu_type_id: str | None = None,
+    vlan: str | None = None,
+    mode: str | None = None,
+    wan_mode: str | None = None,
+    administrative_status: str | None = None,
+    tr069: str | None = None,
+    catv: str | None = None,
+    status: str | None = None,
+    signal: str | None = None,
+    authorized_after: str | None = None,
+    authorized_before: str | None = None,
+    status_changed_after: str | None = None,
 ) -> dict:
-    """Retorna detalhes de todas as ONUs, com filtros opcionais por OLT, placa, porta PON, zona ou ODB.
+    """Retorna detalhes de todas as ONUs, com filtros opcionais.
 
-    Sem filtros, retorna TODAS as ONUs de TODAS as OLTs — é uma operação pesada
-    (equivalente a exportar o banco inteiro). O próprio SmartOLT recomenda no
-    máximo 15 chamadas por hora para este endpoint específico, então evite
-    chamar repetidamente; prefira cachear o resultado quando possível.
+    Use o filtro "status" para monitorar quedas de sinal (LOS) e falhas de
+    energia (Power Fail) — ex: status="los,pwrfail" retorna só as ONUs nesses
+    dois estados. Prefira sempre paginar (page/page_size) e usar "fields" para
+    pedir só os campos que você precisa — sem filtros, a consulta pode ser
+    pesada (equivalente a exportar o banco inteiro).
 
     Args:
-        olt_id: ID da OLT (opcional).
-        board: número da placa/slot (opcional).
-        port: número da porta PON (opcional).
-        zone: nome da zona cadastrada (opcional).
-        odb: nome do ODB/splitter (opcional).
+        page: número da página (recomendado usar paginação).
+        page_size: itens por página, 1–100 (padrão 100).
+        updated_since: só ONUs cuja configuração mudou desde esta data
+            (formato "AAAA-MM-DD HH:MM:SS"). Útil para sincronização
+            incremental após um pull completo inicial.
+        fields: lista de campos a retornar, separados por vírgula (ex:
+            "sn,name,status"). Incluir service_ports/ethernet_ports/wifi_ports/
+            voip_ports só quando necessário — pular acelera a resposta.
+        olt_id: ID da OLT (opcional; vazio = todas as OLTs).
+        board: placa/slot (opcional; vazio = todas as placas da OLT informada).
+        port: porta PON (opcional; vazio = todas as portas da placa informada).
+        zone: nome da zona cadastrada (alfanumérico, espaços, _ e -).
+        odb: nome do ODB/splitter (alfanumérico, espaços, _ e -).
+        sn: número de série da ONU.
+        external_id: ID externo único da ONU.
+        name: nome da ONU.
+        address: endereço da ONU.
+        onu_type_id: ID do tipo de ONU (aceita lista separada por vírgula).
+        vlan: VLAN da ONU.
+        mode: modo da ONU. Valores: "Routing", "Bridging".
+        wan_mode: modo WAN da ONU. Valores: "Setup via ONU webpage", "DHCP",
+            "Static", "PPPoE".
+        administrative_status: status administrativo. Valores: "enabled", "disabled".
+        tr069: status do TR069. Valores: "enabled", "disabled".
+        catv: status do CATV. Valores: "enabled", "disabled".
+        status: status da ONU. Valores: "online", "pwrfail", "los", "offline"
+            — aceita lista separada por vírgula (ex: "los,pwrfail" para pegar
+            só quedas de sinal e falta de energia).
+        signal: nível de sinal. Valores: "very_good", "warning", "critical".
+        authorized_after: ONUs autorizadas nesta data ou depois.
+        authorized_before: ONUs autorizadas nesta data ou antes.
+        status_changed_after: ONUs cujo status mudou nesta data ou depois.
     """
-    params = {"olt_id": olt_id, "board": board, "port": port, "zone": zone, "odb": odb}
+    params = {
+        "page": page,
+        "page_size": page_size,
+        "updated_since": updated_since,
+        "fields": fields,
+        "olt_id": olt_id,
+        "board": board,
+        "port": port,
+        "zone": zone,
+        "odb": odb,
+        "sn": sn,
+        "external_id": external_id,
+        "name": name,
+        "address": address,
+        "onu_type_id": onu_type_id,
+        "vlan": vlan,
+        "mode": mode,
+        "wan_mode": wan_mode,
+        "administrative_status": administrative_status,
+        "tr069": tr069,
+        "catv": catv,
+        "status": status,
+        "signal": signal,
+        "authorized_after": authorized_after,
+        "authorized_before": authorized_before,
+        "status_changed_after": status_changed_after,
+    }
     params = {k: v for k, v in params.items() if v is not None}
     return await _get("onu/get_all_onus_details", params=params)
-
-
-@mcp.tool()
-async def get_onus_status(
-    olt_id: str | None = None,
-    board: str | None = None,
-    port: str | None = None,
-    zone: str | None = None,
-    odb: str | None = None,
-    status_filter: str | None = None,
-) -> dict:
-    """Retorna o status de todas as ONUs (online, offline, LOS, power fail, etc.), com filtros opcionais.
-
-    Use isso para monitorar quedas de sinal (LOS) e falhas de energia (Power Fail).
-    O SmartOLT recomenda consultar este endpoint a cada 5-7 minutos, cacheando o
-    resultado entre chamadas — evite consultar em loop apertado.
-
-    Args:
-        olt_id: filtrar por ID da OLT (opcional).
-        board: filtrar por placa/slot (opcional).
-        port: filtrar por porta PON (opcional).
-        zone: filtrar por zona (opcional).
-        odb: filtrar por ODB/splitter (opcional).
-        status_filter: filtra o resultado no próprio servidor por um texto de status
-            (ex: "los", "power fail", "offline") — comparação case-insensitive,
-            aplicada sobre o campo de status retornado pela API.
-    """
-    params = {"olt_id": olt_id, "board": board, "port": port, "zone": zone, "odb": odb}
-    params = {k: v for k, v in params.items() if v is not None}
-    result = await _get("onu/get_all_onus_status", params=params)
-    if status_filter and isinstance(result, dict):
-        items = result.get("onus") or result.get("response") or []
-        filtered = [
-            item for item in items
-            if status_filter.lower() in str(item.get("status", "")).lower()
-        ]
-        result = {**result, "onus": filtered, "count": len(filtered)}
-    return result
 
 
 @mcp.tool()
@@ -283,6 +319,23 @@ async def update_onu_vlan(onu_id: str, vlan: str) -> dict:
         vlan: novo número da VLAN a aplicar.
     """
     return await _post(f"onu/update_main_vlan/{onu_id}", data={"vlan": vlan})
+
+
+@mcp.tool()
+async def move_onu(onu_external_id: str, olt_id: str, board: str, port: str) -> dict:
+    """Move uma ONU já autorizada para outra OLT/placa/porta PON.
+
+    Args:
+        onu_external_id: ID externo único da ONU (campo "unique_external_id"
+            retornado por get_all_onus_details).
+        olt_id: ID da OLT para a qual a ONU será movida. (obrigatório)
+        board: placa/slot de destino — precisa existir na OLT informada. (obrigatório)
+        port: porta PON de destino — precisa existir na placa informada. (obrigatório)
+    """
+    return await _post(
+        f"onu/move/{onu_external_id}",
+        data={"olt_id": olt_id, "board": board, "port": port},
+    )
 
 
 @mcp.tool()
